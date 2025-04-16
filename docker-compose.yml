@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+    clickhouse:
+        image: clickhouse/clickhouse-server
+        container_name: clickhouse_server
+        ports:
+            - "8123:8123" # HTTP port
+            - "9000:9000" # Native protocol port
+        environment:
+            - CLICKHOUSE_PASSWORD=password
+            - CLICKHOUSE_USER=default
+            - CLICKHOUSE_DB=default
+        volumes:
+            - clickhouse-data:/var/lib/clickhouse
+        restart: unless-stopped
+
+    # You can add your backend service here as well
+    # backend:
+    #   build:
+    #     context: ./server
+    #   ports:
+    #     - "3000:3000"
+    #   environment:
+    #     - PORT=3000
+    #   depends_on:
+    #     clickhouse:
+    #       condition: service_healthy
+
+volumes:
+    clickhouse-data:
+        driver: local

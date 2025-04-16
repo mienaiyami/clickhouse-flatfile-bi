@@ -6,9 +6,10 @@ A Node.js Express backend for handling bidirectional data transfer between Click
 
 - Connect to ClickHouse databases with username/password or JWT token authentication
 - Fetch table schemas, columns, and preview data
-- Import data from CSV files to ClickHouse tables
-- Export data from ClickHouse tables to CSV files
+- Import data from CSV content or file uploads to ClickHouse tables
+- Export data from ClickHouse tables as CSV content
 - Bidirectional data flow
+- Streaming file uploads support
 
 ## Prerequisites
 
@@ -85,7 +86,7 @@ Body:
 ### Get Tables
 
 ```
-POST /api/ingestion/get-tables
+POST /api/ingestion/tables
 ```
 
 Body: Same as check-connection
@@ -93,7 +94,7 @@ Body: Same as check-connection
 ### Get Table Schema
 
 ```
-POST /api/ingestion/get-schema
+POST /api/ingestion/schema
 ```
 
 Body:
@@ -113,7 +114,7 @@ Body:
 ### Get Columns
 
 ```
-POST /api/ingestion/get-columns
+POST /api/ingestion/columns
 ```
 
 Body: Same as get-schema
@@ -141,6 +142,10 @@ Body:
 
 ### Import Data (Flat File to ClickHouse)
 
+There are two ways to import data:
+
+#### Option 1: Using file content in JSON
+
 ```
 POST /api/ingestion/import
 ```
@@ -151,7 +156,39 @@ Body:
 {
   "source": {
     "type": "flatfile",
-    "filePath": "/path/to/file.csv",
+    "fileContent": "id,name,created_at\n1,John,2023-01-01\n2,Jane,2023-01-02",
+    "delimiter": ","
+  },
+  "target": {
+    "type": "clickhouse",
+    "connection": {
+      "host": "localhost",
+      "port": 8123,
+      "database": "default",
+      "username": "default",
+      "password": "password",
+      "protocol": "http"
+    },
+    "table": "example_table"
+  }
+}
+```
+
+#### Option 2: Using multipart/form-data with file upload
+
+```
+POST /api/ingestion/import
+```
+
+Form data:
+
+- `file`: CSV file to upload
+- `body`: JSON string with the configuration:
+
+```json
+{
+  "source": {
+    "type": "flatfile",
     "delimiter": ","
   },
   "target": {
@@ -170,6 +207,8 @@ Body:
 ```
 
 ### Export Data (ClickHouse to Flat File)
+
+#### Option 1: Get the CSV content as JSON response
 
 ```
 POST /api/ingestion/export
@@ -194,11 +233,30 @@ Body:
   },
   "target": {
     "type": "flatfile",
-    "filePath": "/path/to/output.csv",
     "delimiter": ","
   }
 }
 ```
+
+Response:
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "fileContent": "id,name,created_at\n1,John,2023-01-01\n2,Jane,2023-01-02\n"
+}
+```
+
+#### Option 2: Download the CSV file directly
+
+```
+POST /api/ingestion/stream-export
+```
+
+Body: Same as the export endpoint
+
+Response: CSV file download
 
 ## JWT Authentication
 

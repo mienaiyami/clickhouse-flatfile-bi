@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { IngestionController } from "../controllers/ingestion.controller";
 import { validateRequestBody } from "../middleware/validation.middleware";
+import multer from "multer";
 import {
     clickhouseConnectionSchema,
     tableRequestSchema,
@@ -11,6 +12,13 @@ import {
 } from "../validators";
 
 const router = Router();
+
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB limit
+    },
+});
 
 router.post(
     "/check-connection",
@@ -50,6 +58,7 @@ router.post(
 
 router.post(
     "/import",
+    upload.single("file"), // 'file' is the field name expected in the form data
     validateRequestBody(dataTransferConfigSchema),
     IngestionController.importData
 );

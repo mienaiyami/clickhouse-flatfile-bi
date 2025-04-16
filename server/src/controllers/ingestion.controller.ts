@@ -8,6 +8,15 @@ import {
     PreviewDataRequest,
     SchemaRequest,
 } from "../validators";
+import { Readable } from "stream";
+
+type FileUploadRequest = Request & {
+    file?: {
+        buffer: Buffer;
+        mimetype: string;
+        originalname: string;
+    };
+};
 
 export class IngestionController {
     private constructor() {}
@@ -37,7 +46,7 @@ export class IngestionController {
             const tables = await clickhouseService.getTables(config);
             res.json(tables);
         } catch (error) {
-            res.status(500).json({
+            res.status(400).json({
                 error: error instanceof Error ? error.message : "Unknown error",
             });
         }
@@ -110,12 +119,30 @@ export class IngestionController {
         }
     }
 
-    static async importData(
-        req: Request<{}, {}, DataTransferConfig>,
-        res: Response
-    ) {
+    static async importData(req: FileUploadRequest, res: Response) {
         try {
-            const config = req.body;
+            const config = req.body as DataTransferConfig;
+
+            console.log(config);
+
+            // Handle file upload if present in the request
+            if (req.file && config.source.type === "flatfile") {
+                // Convert the file buffer to a readable stream
+                const stream = new Readable();
+                stream.push(req.file.buffer);
+                stream.push(null); // Signal the end of the stream
+
+                // Store the stream and get a stream ID
+                const streamId = clickhouseService.storeStream(
+                    stream,
+                    req.file.mimetype,
+                    req.file.originalname
+                );
+
+                // Update the config with the stream ID
+                config.source.streamId = streamId;
+            }
+
             const status = await clickhouseService.importFromFile(config);
             res.json(status);
         } catch (error) {
@@ -182,8 +209,23 @@ export class IngestionController {
                 return;
             }
 
-            // For streaming, we would need to modify the ClickHouse service to return a readable stream
-            // Since our current implementation doesn't support streaming directly, we'll return the result
+            // If file content exists, send it as a download
+            if (result.fileContent) {
+                // Set headers for file download
+                res.setHeader("Content-Type", "text/csv");
+                res.setHeader(
+                    "Content-Disposition",
+                    `attachment; filename="${
+                        config.source.table
+                    }_${Date.now()}.csv"`
+                );
+
+                // Send the file content
+                res.send(result.fileContent);
+                return;
+            }
+
+            // Otherwise just return the result
             res.json(result);
         } catch (error) {
             res.status(500).json({

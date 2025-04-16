@@ -8,15 +8,41 @@ import {
     ValidationResult,
 } from "../validators";
 import { ClientManager } from "./client-manager";
-import { Transform } from "stream";
+import { Transform, Readable } from "stream";
+import { v4 as uuidv4 } from "uuid";
+import { stringify } from "csv-stringify/sync";
+
+// store for temporary file streams
+const streamStore: Map<
+    string,
+    {
+        stream: Readable;
+        contentType: string;
+        fileName: string;
+        expiresAt: number;
+    }
+> = new Map();
 
 export class ClickHouseService {
     async validateConnection(
         config: ClickHouseConnection
     ): Promise<ValidationResult> {
         try {
+            // Get the client connection
             const client = ClientManager.getClient(config);
-            await client.ping();
+
+            // Check if the database exists
+            const query = `SELECT name FROM system.databases WHERE name = '${config.database}'`;
+            const result = await client.query({ query, format: "JSONEachRow" });
+            const rows = await result.json();
+
+            if (rows.length === 0) {
+                return {
+                    success: false,
+                    error: `Database '${config.database}' does not exist`,
+                };
+            }
+
             return { success: true };
         } catch (error) {
             return {
@@ -122,6 +148,49 @@ export class ClickHouseService {
         }
     }
 
+    // Method to store a stream and return an ID
+    storeStream(
+        stream: Readable,
+        contentType: string,
+        fileName: string
+    ): string {
+        const streamId = uuidv4();
+        // 30 minute expiration
+        const expiresAt = Date.now() + 30 * 60 * 1000;
+        streamStore.set(streamId, { stream, contentType, fileName, expiresAt });
+
+        // Schedule cleanup for expired streams
+        this.cleanupExpiredStreams();
+
+        return streamId;
+    }
+
+    // Method to retrieve a stream by ID
+    getStream(
+        streamId: string
+    ): { stream: Readable; contentType: string; fileName: string } | undefined {
+        const streamData = streamStore.get(streamId);
+        if (!streamData) return undefined;
+
+        // If the stream has expired, remove it and return undefined
+        if (Date.now() > streamData.expiresAt) {
+            streamStore.delete(streamId);
+            return undefined;
+        }
+
+        return streamData;
+    }
+
+    // Cleanup expired streams periodically
+    private cleanupExpiredStreams() {
+        const now = Date.now();
+        for (const [id, data] of streamStore.entries()) {
+            if (now > data.expiresAt) {
+                streamStore.delete(id);
+            }
+        }
+    }
+
     async importFromFile(
         config: DataTransferConfig
     ): Promise<{ success: boolean; count?: number; error?: string }> {
@@ -135,14 +204,30 @@ export class ClickHouseService {
         const client = ClientManager.getClient(config.target.connection);
 
         try {
-            const filePath = path.resolve(config.source.filePath);
-            const delimiter = config.source.delimiter || ",";
+            let fileContent: string;
 
-            // Parse the CSV file to get column names and sample data
-            const fileContent = fs.readFileSync(filePath, "utf-8");
+            // Determine the source of the file content
+            if (config.source.fileContent) {
+                // Use the provided file content directly
+                fileContent = config.source.fileContent;
+            } else if (config.source.streamId) {
+                // Get the stream from the store
+                const streamData = this.getStream(config.source.streamId);
+                if (!streamData) {
+                    throw new Error("Stream not found or has expired");
+                }
+
+                // Read the stream contents into a string
+                fileContent = await this.streamToString(streamData.stream);
+            } else {
+                throw new Error("No file content or stream ID provided");
+            }
+
+            const delimiter = config.source.delimiter || ",";
             const lines = fileContent.split("\n");
+
             if (lines.length === 0) {
-                throw new Error("Empty file");
+                throw new Error("Empty content");
             }
 
             const headers = lines[0].split(delimiter).map((h) => h.trim());
@@ -205,9 +290,24 @@ export class ClickHouseService {
         }
     }
 
-    async exportToFlatFile(
-        config: DataTransferConfig
-    ): Promise<{ success: boolean; count?: number; error?: string }> {
+    // Helper method to convert a stream to a string
+    private streamToString(stream: Readable): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const chunks: Buffer[] = [];
+            stream.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+            stream.on("error", (err) => reject(err));
+            stream.on("end", () =>
+                resolve(Buffer.concat(chunks).toString("utf8"))
+            );
+        });
+    }
+
+    async exportToFlatFile(config: DataTransferConfig): Promise<{
+        success: boolean;
+        count?: number;
+        fileContent?: string;
+        error?: string;
+    }> {
         if (
             config.source.type !== "clickhouse" ||
             config.target.type !== "flatfile"
@@ -222,56 +322,39 @@ export class ClickHouseService {
             const columns = config.source.columns;
             const delimiter = config.target.delimiter || ",";
 
-            // Create a stream to write the data to a file
-            const writeStream = fs.createWriteStream(config.target.filePath);
-
-            // Create a transform stream to convert rows to CSV
-            const transform = new Transform({
-                objectMode: true,
-                transform(chunk, encoding, callback) {
-                    // Format as CSV
-                    const row = columns
-                        .map((col) => {
-                            const value = chunk[col];
-                            return value !== null && value !== undefined
-                                ? String(value)
-                                : "";
-                        })
-                        .join(delimiter);
-                    callback(null, row + "\n");
-                },
-            });
-
-            // Write headers
-            writeStream.write(columns.join(delimiter) + "\n");
-
-            // Query the data and pipe it to the file
-            const columnsStr = columns.join(", ");
+            // Query the data
+            const columnsStr = columns.length > 0 ? columns.join(", ") : "*";
             const query = `SELECT ${columnsStr} FROM ${config.source.connection.database}.${tableName}`;
 
-            // Create a readable stream from the query
-            const stream = (await client.query({ query })).stream<any>();
+            const result = await (
+                await client.query({ query, format: "JSONEachRow" })
+            ).json();
 
-            console.log({ stream });
-            let count = 0;
-            // stream.on("data", () => count++);
+            // Prepare the data for CSV generation
+            const rows = [];
 
-            // // Pipe the data through the transform stream to the file
-            // await new Promise<void>((resolve, reject) => {
-            //     stream
-            //         .pipe(transform)
-            //         .pipe(writeStream)
-            //         .on("finish", () => {
-            //             resolve();
-            //         })
-            //         .on("error", (err) => {
-            //             reject(err);
-            //         });
-            // });
+            // Add header row (column names)
+            rows.push(columns);
 
+            // Add data rows
+            for (const row of result as any[]) {
+                const dataRow = columns.map((col) => {
+                    const value = row[col];
+                    return value !== null && value !== undefined ? value : "";
+                });
+                rows.push(dataRow);
+            }
+
+            const fileContent = stringify(rows, {
+                delimiter,
+                header: false, // We already included the header row in our data
+            });
+
+            // Return the CSV content
             return {
                 success: true,
-                count,
+                count: rows.length - 1, // Subtract 1 for header row
+                fileContent,
             };
         } catch (error) {
             return {

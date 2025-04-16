@@ -1,0 +1,12 @@
+
+"I need to create a Node.js Express backend for handling bidirectional data transfer between ClickHouse and flat files. Please help design a modular architecture with proper separation of concerns. Include services for database connection, data transformation, and API endpoints."
+
+"Help me implement a client manager class that can efficiently manage ClickHouse connections using connection pooling. The manager should map configuration parameters to client instances and handle cleanup when connections are no longer needed."
+
+"I need to modify my data import process to handle file uploads instead of file paths. How should I implement stream storage, parsing CSV data from uploads, and providing proper feedback to users during the import process?"
+
+"What's the most efficient way to export large datasets from ClickHouse to CSV format? I'm concerned about memory usage when handling large result sets. Should I use streaming or chunking approaches?"
+
+"Help me implement a robust validation system using Zod for my API endpoints. I need to validate both connection parameters and data transfer configurations, ensuring proper types and required fields are present."
+
+"Design a consistent error handling approach for my ClickHouse data transfer application. How should errors be captured, formatted, and returned to clients? What status codes are appropriate for different error scenarios?"

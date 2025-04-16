@@ -49,10 +49,11 @@ export const clickhouseSourceSchema = z.object({
 
 export const flatFileSourceSchema = z.object({
     type: z.literal("flatfile"),
-    //temp
-    filePath: z.string().nonempty("File path is required"),
+    fileContent: z.string().optional(),
+    streamId: z.string().optional(),
     delimiter: z.string().optional().default(","),
     headers: z.boolean().optional().default(true),
+    fileName: z.string().optional(),
 });
 
 export const clickhouseTargetSchema = z.object({
@@ -63,7 +64,6 @@ export const clickhouseTargetSchema = z.object({
 
 export const flatFileTargetSchema = z.object({
     type: z.literal("flatfile"),
-    filePath: z.string().nonempty("File path is required"),
     delimiter: z.string().optional().default(","),
 });
 

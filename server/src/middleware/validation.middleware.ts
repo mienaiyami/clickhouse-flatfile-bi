@@ -5,7 +5,11 @@ export const validateRequestBody =
     (schema: AnyZodObject) =>
     async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const result = await schema.parseAsync(req.body);
+            if (req.path.includes("import")) {
+                req.body = await schema.parseAsync(JSON.parse(req.body.body));
+            } else {
+                req.body = await schema.parseAsync(req.body);
+            }
             // password can be empty
             // if (schema.shape.jwtToken && schema.shape.password) {
             //     if (!result.jwtToken && !result.password) {
