@@ -1,0 +1,35 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "lint": "biome lint .",
+    "dev": "tsx watch src/index.ts",
+    "build": "tsx src/index.ts",
+    "format-and-lint:fix": "biome check --write ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.6.5",
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.14.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@biomejs/biome",
+      "esbuild"
+    ]
+  },
+  "dependencies": {
+    "@clickhouse/client": "^1.11.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "tsx": "^4.19.3",
+    "zod": "^3.24.2"
+  }
+}
